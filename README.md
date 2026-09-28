@@ -29,6 +29,93 @@ vendor/bin/swerve --http=0.0.0.0:8080 --public=public swerve.php
 That's the whole setup. `public/index.php` stays as it is, so the same application still runs
 under PHP-FPM.
 
+## WebSockets
+
+A WebSocket is a controller method on a GET route. It returns `Swerve\Http\WebSocket` in a
+`PsrResponse`; the callback runs on the connection after the handshake:
+
+```php
+// app/Config/Routes.php
+$routes->get('chat', 'Chat::socket');
+```
+
+```php
+namespace App\Controllers;
+
+use Swerve\CodeIgniter\PsrResponse;
+use Swerve\Http\WebSocket;
+
+class Chat extends BaseController
+{
+    public function socket()
+    {
+        return new PsrResponse(WebSocket::from(service('psrRequest'), function (WebSocket $ws) {
+            foreach ($ws as $message) {             // ends when the client leaves
+                $ws->send("echo: $message");        // sendBinary() for binary messages
+            }
+        }));
+    }
+}
+```
+
+`service('psrRequest')` is the request as swerve received it. An ordinary GET to the route is
+answered 426.
+
+**Server push.** `Swerve::subscribe()` receives what any worker publishes, so an ordinary
+controller can reach every open socket:
+
+```php
+use Swerve\Swerve;
+
+public function news()                          // GET news, the WebSocket
+{
+    return new PsrResponse(WebSocket::from(service('psrRequest'), function (WebSocket $ws) {
+        foreach (Swerve::subscribe('news') as $message) {
+            $ws->send($message);
+        }
+    }));
+}
+
+public function publish()                       // POST news, an ordinary request
+{
+    Swerve::publish('news', json_encode($this->request->getJSON()));
+
+    return $this->response->setStatusCode(204);
+}
+```
+
+A callback that only sends, like this one, ends when its client leaves: swerve reads every
+connection and cancels the callback. See swerve's [realtime](https://github.com/phasync/swerve/blob/main/docs/realtime.md)
+and [publish and subscribe](https://github.com/phasync/swerve/blob/main/docs/publish-subscribe.md) guides.
+
+**Take the user before `WebSocket::from()`.** The callback runs after the request has ended,
+while the worker serves other requests; CodeIgniter's `session()`, `$this->request` and the
+other request services then belong to whichever request the worker ran last. Read what the
+callback needs in the controller and pass it in:
+
+```php
+public function socket()
+{
+    $userId = session('user_id');               // this request's session, now
+
+    return new PsrResponse(WebSocket::from(service('psrRequest'), function (WebSocket $ws) use ($userId) {
+        foreach (Swerve::subscribe("user:$userId") as $message) {
+            $ws->send($message);
+        }
+    }));
+}
+```
+
+Calling `session('user_id')` inside the callback instead returns the user of another visitor's
+request (the tests show it).
+
+**What the tests show**, with and without phasync-ext: text and binary messages both ways;
+every published message reaching every client on every worker, in order; callbacks ending when
+clients leave, with a close frame or without a word; 500 sockets open on 2 workers while
+ordinary requests are still answered at once, since a worker runs one request at a time but an
+open socket doesn't hold that turn; on SIGTERM, clients get a close with 1001 and the workers
+exit cleanly.
+
 ## What changes
 
 | CodeIgniter 4.7 skeleton, 4 processes | PHP-FPM | swerve | |
@@ -42,26 +129,8 @@ and [1,822 req/s](benchmarks/results/swerve-4-ext-counter.txt). CodeIgniter's wo
 builds every config object and most services again for each request; that, not the server, is
 most of a request's time. [Method and raw results](benchmarks/).
 
-A controller can also return a PSR-7 response, sent as it is produced: Server-Sent Events, a
-streamed download, a WebSocket.
-
-```php
-use Swerve\CodeIgniter\PsrResponse;
-use Swerve\Http\WebSocket;
-
-public function chat()
-{
-    return new PsrResponse(WebSocket::from(service('psrRequest'), function (WebSocket $ws) {
-        foreach ($ws as $message) {
-            $ws->send("echo: $message");
-        }
-    }));
-}
-```
-
-`service('psrRequest')` is the request as swerve received it. The body of a `PsrResponse` is
-produced after the request has ended, so the code producing it uses what it captured, not the
-request's services (session, request, response).
+A controller can also return a PSR-7 response in a `Swerve\CodeIgniter\PsrResponse`, sent as it
+is produced: Server-Sent Events, a streamed download, a WebSocket.
 
 ## How it runs
 
@@ -98,15 +167,17 @@ request's services (session, request, response).
 - A request that waits (a slow query, an API call) holds its worker: run enough workers for the
   requests that wait at the same time.
 - `is_cli()` is `false` in the workers, as under PHP-FPM; `spark` is unchanged.
-- With phasync-ext 0.5.0-alpha8, every worker crashes on its first request:
-  [phasync/phasync-ext#9](https://github.com/phasync/phasync-ext/issues/9). Run without the
-  extension until a release fixes it.
+- phasync-ext needs 0.5.0-alpha10 or later: with 0.5.0-alpha8 every worker crashes on its
+  first request ([phasync/phasync-ext#9](https://github.com/phasync/phasync-ext/issues/9)).
+- Every open WebSocket is a connection of one worker; without phasync-ext a worker holds about
+  960. Code in a WebSocket callback uses what the controller passed in, not the request's
+  services.
 
 ## Compatibility
 
 | CodeIgniter | PHP | phasync-ext |
 |---|---|---|
-| 4.7 | 8.2 – 8.5 | optional; tested with and without |
+| 4.7 | 8.2 – 8.5 | optional, 0.5.0-alpha10 or later; tested with and without |
 
 ## License
 

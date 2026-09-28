@@ -1,7 +1,7 @@
 <?php
 
 /*
- * A controller returning Swerve\CodeIgniter\PsrResponse: a streamed body and a WebSocket.
+ * A controller returning Swerve\CodeIgniter\PsrResponse: a streamed body (WebSockets: WebSocketTest.php).
  */
 
 beforeEach(function () {
@@ -33,16 +33,4 @@ test('a streamed response that starts a session', function () {
     expect($response)->toMatch('/\r\nSet-Cookie: ci_session=[0-9a-f]{32};/i')
         ->and($response)->toContain("first\n")
         ->and($response)->toContain("last\n");
-});
-
-test('a WebSocket from a controller', function () {
-    $conn = ws_connect($this->addr, '/ws');
-    ws_send($conn, 1, 'hello');
-    expect(ws_read($conn))->toBe([1, 'echo: hello']);
-    ws_send($conn, 1, 'again');
-    expect(ws_read($conn))->toBe([1, 'echo: again']);
-    // The worker serves other requests meanwhile
-    expect(http($this->addr, 'GET', '/json')['status'])->toBe(200);
-    ws_send($conn, 8, \pack('n', 1000));
-    expect(ws_read($conn))->toBe([8, \pack('n', 1000)]);
 });

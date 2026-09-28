@@ -39,6 +39,13 @@ function app_start(int $workers = 2, array $env = []): array
 function app_stop($proc): int
 {
     \proc_terminate($proc, \SIGTERM);
+
+    return app_exit($proc);
+}
+
+/** Wait (up to 10 s) for swerve to exit, and return its exit code. */
+function app_exit($proc): int
+{
     $deadline = \microtime(true) + 10;
     while (($status = \proc_get_status($proc))['running'] && \microtime(true) < $deadline) {
         \usleep(50_000);
@@ -166,12 +173,17 @@ function read_until($conn, string $needle): string
     return $data;
 }
 
-/** A WebSocket handshake on $path; returns the connection. */
-function ws_connect(string $addr, string $path)
+/**
+ * A WebSocket handshake on $path; returns the connection.
+ *
+ * @param list<string> $headers more request headers, as "Name: value"
+ */
+function ws_connect(string $addr, string $path, array $headers = [])
 {
-    $key  = \base64_encode(\random_bytes(16));
-    $conn = raw_request($addr, "GET $path HTTP/1.1\r\nHost: test\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: $key\r\nSec-WebSocket-Version: 13\r\n\r\n");
-    $head = '';
+    $key   = \base64_encode(\random_bytes(16));
+    $extra = \implode('', \array_map(static fn ($h) => "$h\r\n", $headers));
+    $conn  = raw_request($addr, "GET $path HTTP/1.1\r\nHost: test\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: $key\r\nSec-WebSocket-Version: 13\r\n$extra\r\n");
+    $head  = '';
     while (!\str_contains($head, "\r\n\r\n") && !\feof($conn)) {
         $head .= \fread($conn, 1);
     }
@@ -212,9 +224,42 @@ function ws_read($conn): ?array
 function read_exactly($conn, int $n): ?string
 {
     $data = '';
-    while (\strlen($data) < $n && !\feof($conn)) {
+    while (\strlen($data) < $n && !\feof($conn) && !\stream_get_meta_data($conn)['timed_out']) {
         $data .= \fread($conn, $n - \strlen($data));
     }
 
     return \strlen($data) === $n ? $data : null;
+}
+
+/**
+ * The WebSocket callbacks running in each worker (the fixture's /news/open): polled until each
+ * of the $workers workers has answered, and then until they all report 0 or $seconds have passed.
+ *
+ * @return array<int, int> pid => callbacks running, as last reported
+ */
+function ws_open(string $addr, int $workers, float $seconds = 5): array
+{
+    $open     = [];
+    $deadline = \microtime(true) + $seconds;
+    for ($i = 0; $i < 1000; ++$i) {
+        $data               = \json_decode(http($addr, 'GET', '/news/open')['body'], true);
+        $open[$data['pid']] = $data['open'];
+        if (\count($open) === $workers && (0 === \array_sum($open) || \microtime(true) > $deadline)) {
+            break;
+        }
+        \usleep(10_000);
+    }
+
+    return $open;
+}
+
+/** The session cookie a response sets, as a Cookie header. */
+function session_cookie(array $response): string
+{
+    foreach ($response['headers']['set-cookie'] ?? [] as $cookie) {
+        if (\str_starts_with($cookie, 'ci_session=')) {
+            return 'Cookie: ' . \explode(';', $cookie)[0];
+        }
+    }
+    throw new RuntimeException('no session cookie');
 }

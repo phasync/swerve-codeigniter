@@ -6,10 +6,14 @@ use phasync\Psr\UnbufferedStream;
 use Swerve\CodeIgniter\PsrResponse;
 use Swerve\Http\Message\Response;
 use Swerve\Http\WebSocket;
+use Swerve\Swerve;
 
 /** swerve-codeigniter's test routes (tests/Fixtures/routes/SwerveTest.php) */
 class SwerveTest extends BaseController
 {
+    /** The WebSocket callbacks of /news and /me running in this worker */
+    public static int $open = 0;
+
     public function json()
     {
         return $this->response->setJSON(['framework' => 'CodeIgniter', 'version' => \CodeIgniter\CodeIgniter::CI_VERSION]);
@@ -113,7 +117,72 @@ class SwerveTest extends BaseController
     {
         return new PsrResponse(WebSocket::from(service('psrRequest'), function (WebSocket $ws) {
             foreach ($ws as $message) {
-                $ws->send("echo: $message");
+                $ws->isBinary() ? $ws->sendBinary($message) : $ws->send("echo: $message");
+            }
+        }));
+    }
+
+    /** Server push: forwards the topic news, after saying it has subscribed (and in which worker). */
+    public function news()
+    {
+        return new PsrResponse(WebSocket::from(service('psrRequest'), static function (WebSocket $ws) {
+            ++self::$open;
+            try {
+                $subscription = Swerve::subscribe('news');
+                $ws->send('subscribed ' . \getmypid());
+                foreach ($subscription as $message) {
+                    $ws->send($message);
+                }
+            } finally {
+                --self::$open;
+            }
+        }));
+    }
+
+    public function publish()
+    {
+        Swerve::publish('news', (string) $this->request->getBody());
+
+        return $this->response->setStatusCode(204);
+    }
+
+    public function open()
+    {
+        return $this->response->setJSON(['pid' => \getmypid(), 'open' => self::$open]);
+    }
+
+    public function login()
+    {
+        session()->set('user', $this->request->getPost('user'));
+
+        return $this->response->setStatusCode(204);
+    }
+
+    /** The session's user, taken from the request before the callback, in every message. */
+    public function me()
+    {
+        $user = session('user') ?? 'guest';
+
+        return new PsrResponse(WebSocket::from(service('psrRequest'), static function (WebSocket $ws) use ($user) {
+            ++self::$open;
+            try {
+                $subscription = Swerve::subscribe('news');
+                $ws->send("hello $user");
+                foreach ($subscription as $message) {
+                    $ws->send("$user: $message");
+                }
+            } finally {
+                --self::$open;
+            }
+        }));
+    }
+
+    /** Wrong: reads the session inside the callback, after the request has ended. */
+    public function meLate()
+    {
+        return new PsrResponse(WebSocket::from(service('psrRequest'), static function (WebSocket $ws) {
+            foreach ($ws as $message) {
+                $ws->send('user: ' . (session('user') ?? 'guest'));
             }
         }));
     }
