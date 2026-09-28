@@ -1,0 +1,5 @@
+2026-09-28T16:01:53Z Intel(R) Xeon(R) CPU E5-2697 v3 @ 2.60GHz, 56 threads
+PHP 8.5.11 (cli) (built: Sep 24 2026 13:49:29) (NTS)
+phasync-ext 0.5.0-alpha8, built with the fix proposed in phasync/phasync-ext#9 (the release crashes CodeIgniter on its first request)
+CodeIgniter 4.7.4
+swerve 0.1.0-alpha12 + phasync/swerve#3 (main at c7b5327)
