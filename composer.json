@@ -13,7 +13,7 @@
     "require": {
         "php": "^8.2",
         "codeigniter4/framework": "^4.7",
-        "phasync/swerve": "^0.1.0-alpha13",
+        "phasync/swerve": "^0.1.0-alpha15",
         "psr/http-server-handler": "^1.0"
     },
     "require-dev": {

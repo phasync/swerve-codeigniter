@@ -15,9 +15,9 @@ composer config prefer-stable true
 # tests directory contain itself
 php -r '$c = json_decode(file_get_contents("composer.json"), true); $c["autoload"]["psr-4"]["Swerve\\CodeIgniter\\"] = "../../../src/"; file_put_contents("composer.json", json_encode($c, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");'
 if [ -n "${SWERVE_PATH:-}" ]; then
-    composer config repositories.swerve "{\"type\": \"path\", \"url\": \"$SWERVE_PATH\", \"options\": {\"symlink\": false, \"versions\": {\"phasync/swerve\": \"0.1.0-alpha13\"}}}"
+    composer config repositories.swerve "{\"type\": \"path\", \"url\": \"$SWERVE_PATH\", \"options\": {\"symlink\": false, \"versions\": {\"phasync/swerve\": \"0.1.0-alpha15\"}}}"
 fi
-composer require --no-interaction --no-progress 'phasync/swerve:^0.1.0-alpha13'
+composer require --no-interaction --no-progress 'phasync/swerve:^0.1.0-alpha15'
 
 cp ../routes/SwerveTest.php app/Controllers/SwerveTest.php
 grep -q SwerveTest app/Config/Routes.php || cat ../routes/routes.php >> app/Config/Routes.php
