@@ -26,6 +26,7 @@ function app_start(int $workers = 2, array $env = []): array
     \curl_setopt_array($curl, [\CURLOPT_RETURNTRANSFER => true, \CURLOPT_TIMEOUT => 1]);
     while (false === \curl_exec($curl)) {
         if (\microtime(true) > $deadline) {
+            \proc_terminate($proc, \SIGKILL);
             throw new RuntimeException("swerve did not start:\n" . \file_get_contents($log));
         }
         \usleep(100_000);
