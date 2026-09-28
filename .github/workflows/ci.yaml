@@ -36,12 +36,8 @@ jobs:
       - name: 📥 Install dependencies
         run: composer install --no-progress --prefer-dist
 
-      # Until swerve 0.1.0-alpha13: with*() on alpha12's messages clones a streamed body (phasync/swerve#3)
-      - name: 📥 Check out swerve main
-        run: git clone --depth 1 https://github.com/phasync/swerve "$RUNNER_TEMP/swerve"
-
       - name: 🏗️ Create the CodeIgniter ${{ matrix.framework }} test application
-        run: SWERVE_PATH="$RUNNER_TEMP/swerve" tests/create-app.sh ${{ matrix.framework }}
+        run: tests/create-app.sh ${{ matrix.framework }}
 
       - name: 🔍 Check php-cs-fixer
         run: composer php-cs-fixer-dry-run
