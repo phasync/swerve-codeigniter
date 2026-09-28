@@ -19,6 +19,15 @@ class SwerveTest extends BaseController
         return $this->response->setJSON(['framework' => 'CodeIgniter', 'version' => \CodeIgniter\CodeIgniter::CI_VERSION]);
     }
 
+    /** A wait of ?ms= (default 10) in usleep(), as a database query waits: it blocks the worker without phasync-ext. */
+    public function usleep()
+    {
+        $ms = (int) ($this->request->getGet('ms') ?? 10);
+        \usleep(1000 * $ms);
+
+        return $this->response->setJSON(['waited' => $ms]);
+    }
+
     public function jsonEcho()
     {
         return $this->response->setJSON(['received' => $this->request->getJSON(true)]);

@@ -19,5 +19,6 @@ $routes->post('login', 'SwerveTest::login');
 $routes->get('me', 'SwerveTest::me');
 $routes->get('me/late', 'SwerveTest::meLate');
 $routes->get('slow', 'SwerveTest::slow');
+$routes->get('usleep', 'SwerveTest::usleep');
 $routes->get('boom', 'SwerveTest::boom');
 $routes->get('memory', 'SwerveTest::memory');
