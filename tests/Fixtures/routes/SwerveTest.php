@@ -47,6 +47,9 @@ class SwerveTest extends BaseController
 
     public function upload()
     {
+        if (null !== $wait = $this->request->getGet('wait')) {
+            $this->wait((float) $wait);
+        }
         $file = $this->request->getFile('document');
         if (null === $file || !$file->isValid()) {
             return $this->response->setStatusCode(400)->setBody('invalid upload');
@@ -82,6 +85,65 @@ class SwerveTest extends BaseController
             'renderer' => $renderer->getData()['value'] ?? null,
             'sid'      => \session_id(),
             'pid'      => \getmypid(),
+        ]);
+    }
+
+    /**
+     * Each of CodeIgniter's request-scoped places set to $value, a wait, and each read back: the
+     * body is what was echoed, then the JSON (a string, as a controller returns a view).
+     */
+    public function overlap(string $value)
+    {
+        $locale = $this->request->getGet('locale') ?? 'en';
+        $this->request->setValidLocales(['en', 'nb', 'de', 'fr', 'sv'])->setLocale($locale);
+        if ($session = (bool) $this->request->getGet('session')) {
+            session()->set('value', $value);
+        }
+        service('renderer')->setVar('value', $value);
+        config(\Config\Email::class)->fromName = $value;
+        $this->response->setHeader('X-Value', $value);
+        echo "<$value>";
+
+        $this->wait((float) ($this->request->getGet('wait') ?? 0.2));
+
+        return \json_encode([
+            'session'       => $session ? session('value') : null,
+            'nativeSession' => $_SESSION['value'] ?? null,
+            'sid'           => \session_id(),
+            'request'       => $this->request->getGet('v'),
+            'service'       => service('request')->getGet('v'),
+            'get'           => $_GET['v'] ?? null,
+            'superglobals'  => service('superglobals')->get('v'),
+            'segment'       => service('request')->getUri()->getSegment(2),
+            'route'         => service('router')->params(),
+            'renderer'      => service('renderer')->getData()['value'] ?? null,
+            'config'        => config(\Config\Email::class)->fromName,
+            'locale'        => $this->request->getLocale(),
+            'language'      => service('language')->getLocale(),
+            'intl'          => \Locale::getDefault(),
+        ]);
+    }
+
+    /**
+     * The database, CodeIgniter's one connection per worker: a slow insert (the wait, as the
+     * database takes it) in a transaction, its id, the commit; then a model's slow query.
+     */
+    public function overlapDb(string $value)
+    {
+        $db = db_connect();
+        $db->query('CREATE TABLE IF NOT EXISTS overlap (id INT AUTO_INCREMENT PRIMARY KEY, v VARCHAR(64), KEY (v))');
+        $db->transBegin();
+        $db->query('INSERT INTO overlap (v) SELECT ? FROM (SELECT SLEEP(?)) AS wait', [$value, (float) ($this->request->getGet('wait') ?? 0.2)]);
+        $id = $db->insertID();
+        $db->transCommit();
+        $mine  = $db->query('SELECT id FROM overlap WHERE v = ?', [$value])->getResultArray();
+        $model = model(OverlapModel::class);
+        $rows  = $model->select('v, SLEEP(0.1) AS s')->where('v', $value)->findAll();
+
+        return $this->response->setJSON([
+            'id'      => (int) $id,
+            'stored'  => \array_map('intval', \array_column($mine, 'id')),
+            'model'   => \array_values(\array_unique(\array_column($rows, 'v'))),
         ]);
     }
 
@@ -220,4 +282,11 @@ class SwerveTest extends BaseController
     {
         \extension_loaded('phasync') ? \usleep((int) ($seconds * 1e6)) : \phasync::sleep($seconds);
     }
+}
+
+/** A model on the table of SwerveTest::overlapDb() */
+class OverlapModel extends \CodeIgniter\Model
+{
+    protected $table         = 'overlap';
+    protected $allowedFields = ['v'];
 }

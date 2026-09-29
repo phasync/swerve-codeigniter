@@ -7,6 +7,8 @@ $routes->post('form', 'SwerveTest::submit', ['filter' => 'csrf']);
 $routes->post('upload', 'SwerveTest::upload');
 $routes->get('download', 'SwerveTest::download');
 $routes->get('isolation/(:segment)', 'SwerveTest::isolation/$1', ['as' => 'isolation']);
+$routes->get('overlap/(:segment)', 'SwerveTest::overlap/$1');
+$routes->get('overlap-db/(:segment)', 'SwerveTest::overlapDb/$1');
 $routes->get('counter', 'SwerveTest::counter');
 $routes->post('flash', 'SwerveTest::setFlash');
 $routes->get('flash', 'SwerveTest::flash');
