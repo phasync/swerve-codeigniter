@@ -144,9 +144,12 @@ is produced: Server-Sent Events, a streamed download, a WebSocket.
   from its file). Then worker mode's resets run, as `app/Config/WorkerMode.php` configures them:
   `Services::resetForWorkerMode()`, `Factories::reset()`, `Events::cleanupForWorkerMode()`,
   open database transactions rolled back, connections checked before the next request.
-- **Concurrency:** CodeIgniter keeps the current request in static services, so a worker runs
-  one request at a time (`phasync\Util\Synchronized`); the others wait their turn. Streamed
-  responses and WebSockets are sent after their request, so they don't hold the worker.
+- **Concurrency:** a worker runs one request at a time (`phasync\Util\Synchronized`); the
+  others wait their turn, so size the workers for the requests you serve at once. CodeIgniter
+  shares its services, `config()` and `model()` instances, the default locale, `$_SESSION`
+  and the database connection among a worker's requests: [why, and what was
+  tried](docs/concurrency.md). Streamed responses and WebSockets are sent after their
+  request, so they don't hold the worker.
 - **Sessions:** CodeIgniter's session library with any of its drivers. The session is written
   at the end of each request, PHP's session id is set from the request's cookie (PHP would
   otherwise keep the previous visitor's), and the session cookie PHP sends itself is added to

@@ -37,8 +37,10 @@ use Swerve\Http\Message\Stream;
  * IncomingRequest; CodeIgniter::run() returns its response, which becomes a PSR-7 response; then
  * the session is written, PHP's session id cleared, and worker mode's resets run
  * (Services::resetForWorkerMode() with app/Config/WorkerMode.php, Factories, Events, database
- * transactions). Concurrency: CodeIgniter keeps the request in static Services, so a worker runs
- * one request at a time (phasync\Util\Synchronized); the others wait their turn.
+ * transactions). Concurrency: a worker runs one request at a time (phasync\Util\Synchronized);
+ * the others wait their turn. CodeIgniter shares its services, config() and model() instances,
+ * the default locale, $_SESSION and the database connection among a worker's requests:
+ * docs/concurrency.md.
  */
 final class Handler implements RequestHandlerInterface
 {
