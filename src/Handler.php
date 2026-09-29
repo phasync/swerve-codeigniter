@@ -4,9 +4,11 @@ namespace Swerve\CodeIgniter;
 
 use CodeIgniter\Boot;
 use CodeIgniter\CodeIgniter;
+use CodeIgniter\Config\BaseService;
 use CodeIgniter\Config\Factories;
 use CodeIgniter\Config\Services;
 use CodeIgniter\Cookie\Cookie;
+use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\Database\Config as DatabaseConfig;
 use CodeIgniter\Debug\ExceptionHandler as CodeIgniterExceptionHandler;
 use CodeIgniter\Events\Events;
@@ -59,6 +61,9 @@ final class Handler implements RequestHandlerInterface
     /** $_SERVER after the boot (the environment and .env), under each request's own values */
     private array $server;
     private int $obLevel;
+    private ?RequestScope $services    = null;
+    private ?RequestScope $connections = null;
+    private int $running               = 0;
 
     /**
      * @param string $root the application's root directory, where composer.json is
@@ -87,15 +92,59 @@ final class Handler implements RequestHandlerInterface
         $this->app->setContext('web');
         $this->workerMode = config(WorkerMode::class);
         $this->server     = $_SERVER;
+
+        if (\getenv('SWERVE_CI_SCOPE')) {
+            $this->services = new RequestScope(
+                \Closure::bind(static fn () => static::$instances, null, BaseService::class)(),
+                \array_values(\array_diff($this->workerMode->persistentServices, ['superglobals'])),
+            );
+            \Closure::bind(static fn ($s) => static::$instances = $s, null, BaseService::class)($this->services);
+            if (\getenv('SWERVE_CI_DBSCOPE')) {
+                $this->connections = new RequestScope([], [], static fn (BaseConnection $db) => $db->reconnect());
+                \Closure::bind(static fn ($s) => static::$instances = $s, null, DatabaseConfig::class)($this->connections);
+            }
+        }
     }
 
+    /**
+     * EXPERIMENT (branch concurrent, see docs/concurrency.md): no lock, with switches in the
+     * environment to compare what leaks between overlapping requests:
+     *
+     * - SWERVE_CI_LOCK: the lock as on main;
+     * - SWERVE_CI_SCOPE: Services' shared instances per request (RequestScope), and a CodeIgniter
+     *   instance per request (SWERVE_CI_SHAREDAPP: the worker's one);
+     * - SWERVE_CI_DBSCOPE: database connections per request too (breaks the toolbar filter:
+     *   Database\Config::getConnections() must return an array);
+     * - SWERVE_CI_VIRTUAL: each request through Swerve\Http\Virtual::run() (phasync-ext).
+     */
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
-        return Synchronized::run($this, fn () => $this->run($request));
+        if (\getenv('SWERVE_CI_LOCK')) {
+            return Synchronized::run($this, fn () => $this->run($request));
+        }
+        if (\getenv('SWERVE_CI_VIRTUAL')) {
+            $request->getParsedBody(); // swerve's form parser, before virtualize() reads the body
+
+            return \Swerve\Http\Virtual::run($request, function () use ($request) {
+                $response = $this->run($request);
+                \http_response_code($response->getStatusCode());
+                foreach ($response->getHeaders() as $name => $values) {
+                    foreach ($values as $value) {
+                        \header("$name: $value", false);
+                    }
+                }
+                echo $response->getBody();
+            });
+        }
+
+        return $this->run($request);
     }
 
     private function run(ServerRequestInterface $request): ResponseInterface
     {
+        if (null !== $this->services) {
+            return $this->runScoped($request);
+        }
         try {
             DatabaseConfig::reconnectForWorkerMode();
             Services::reconnectCacheForWorkerMode();
@@ -142,6 +191,61 @@ final class Handler implements RequestHandlerInterface
             if ($this->workerMode->forceGarbageCollection) {
                 \gc_collect_cycles();
             }
+        }
+    }
+
+    private function runScoped(ServerRequestInterface $request): ResponseInterface
+    {
+        ++$this->running;
+        $this->services->begin();
+        $this->connections?->begin();
+        DatabaseConfig::reconnectForWorkerMode();
+        $uploads = [];
+        try {
+            if (\getenv('SWERVE_CI_SHAREDAPP')) {
+                $app = $this->app;
+                $app->resetForWorkerMode();
+            } else {
+                $app = new CodeIgniter(config(App::class));
+                $app->setContext('web');
+            }
+            $before = self::$uploads;
+            $this->globals($request);
+            $uploads = \array_diff_key(self::$uploads, $before);
+            Services::override('psrRequest', $request);
+
+            $id = $_COOKIE[config(SessionConfig::class)->cookieName] ?? '';
+            \session_id(\is_string($id) && \preg_match('/\A[a-zA-Z0-9,-]{1,256}\z/', $id) ? $id : '');
+
+            Services::createRequest(config(App::class));
+            if (!$request->hasHeader('Upgrade') && !\str_contains($request->getHeaderLine('Content-Type'), 'multipart/form-data')) {
+                $body = (string) $request->getBody();
+                if ('' !== $body) {
+                    Services::request()->setBody($body);
+                }
+            }
+
+            try {
+                $response = $app->run(null, true);
+            } catch (\Throwable $e) {
+                $response = $this->error($e);
+            }
+
+            return $this->response($response);
+        } finally {
+            if (Services::has('session')) {
+                Services::session()->close();
+            }
+            unset($_SESSION);
+            self::$uploads = \array_diff_key(self::$uploads, $uploads);
+
+            DatabaseConfig::cleanupForWorkerMode();
+            $this->connections?->end();
+            $this->services->end();
+            if (0 === --$this->running) {
+                Factories::reset();
+            }
+            Events::cleanupForWorkerMode($this->workerMode->resetEventListeners);
         }
     }
 
