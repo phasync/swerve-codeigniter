@@ -20,7 +20,8 @@ fi
 composer require --no-interaction --no-progress 'phasync/swerve:^0.1.0-alpha15'
 
 cp ../routes/SwerveTest.php app/Controllers/SwerveTest.php
-grep -q SwerveTest app/Config/Routes.php || cat ../routes/routes.php >> app/Config/Routes.php
+sed -i '/^\/\/ swerve-codeigniter.s test routes/,$d' app/Config/Routes.php
+cat ../routes/routes.php >> app/Config/Routes.php
 cat > swerve.php <<'PHP'
 <?php
 
