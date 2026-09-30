@@ -18,14 +18,14 @@ use Config\Exceptions as ExceptionsConfig;
 use Config\Paths;
 use Config\Session as SessionConfig;
 use Config\WorkerMode;
+use phasync\Psr\Response;
+use phasync\Psr\ResourceStream;
 use phasync\Psr\StringStream;
 use phasync\Util\Synchronized;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UploadedFileInterface;
 use Psr\Http\Server\RequestHandlerInterface;
-use Swerve\Http\Message\Response;
-use Swerve\Http\Message\Stream;
 
 /**
  * A CodeIgniter 4 application as swerve's request handler, from the project's swerve.php:
@@ -276,7 +276,7 @@ final class Handler implements RequestHandlerInterface
         if ($response instanceof DownloadResponse) {
             $response->buildHeaders();
             [$file, $binary] = (fn () => [$this->file, $this->binary])->call($response);
-            $body            = null !== $binary ? new StringStream($binary) : new Stream(\fopen($file->getRealPath(), 'r'));
+            $body            = null !== $binary ? new StringStream($binary) : new ResourceStream(\fopen($file->getRealPath(), 'r'));
         } else {
             $response->getCSP()->finalize($response);
             $body = new StringStream((string) $response->getBody());
@@ -290,7 +290,7 @@ final class Handler implements RequestHandlerInterface
             $headers['Set-Cookie'] = $cookies;
         }
 
-        return new Response($body, $headers, $response->getStatusCode(), $response->getReasonPhrase(), $response->getProtocolVersion());
+        return new Response($response->getStatusCode(), $headers, $body, $response->getProtocolVersion(), $response->getReasonPhrase());
     }
 
     /**

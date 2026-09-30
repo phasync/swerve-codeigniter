@@ -2,9 +2,9 @@
 
 namespace App\Controllers;
 
+use phasync\Psr\Response;
 use phasync\Psr\UnbufferedStream;
 use Swerve\CodeIgniter\PsrResponse;
-use Swerve\Http\Message\Response;
 use Swerve\Http\WebSocket;
 use Swerve\Swerve;
 
@@ -181,7 +181,7 @@ class SwerveTest extends BaseController
             }
         });
 
-        return new PsrResponse(new Response($out, ['Content-Type' => 'text/plain']));
+        return new PsrResponse(new Response(200, ['Content-Type' => 'text/plain'], $out));
     }
 
     public function ws()
