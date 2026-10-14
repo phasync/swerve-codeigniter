@@ -19,7 +19,7 @@ function app_start(int $workers = 2, array $env = []): array
     $log      = \tempnam(\sys_get_temp_dir(), 'swerve-log');
     $app      = __DIR__ . '/Fixtures/app';
     $php      = \trim((string) \getenv('SWERVE_PHP_ARGS'));
-    $cmd      = 'exec ' . \PHP_BINARY . " $php " . \escapeshellarg("$app/vendor/bin/swerve") . " --workers=$workers --grace=2 --http=$addr --log=" . \escapeshellarg($log) . ' ' . \escapeshellarg("$app/swerve.php");
+    $cmd      = 'exec ' . \PHP_BINARY . " $php " . \escapeshellarg("$app/vendor/bin/swerve") . " --adapter=swerve --workers=$workers --grace=2 --http=$addr --log=" . \escapeshellarg($log) . ' ' . \escapeshellarg("$app/swerve.php");
     $proc     = \proc_open($cmd, [['file', '/dev/null', 'r'], ['file', '/dev/null', 'w'], ['file', '/dev/null', 'w']], $pipes, $app, $env + \getenv());
     $deadline = \microtime(true) + 20;
     $curl     = \curl_init("http://$addr/json");
@@ -188,7 +188,7 @@ function ws_connect(string $addr, string $path, array $headers = [])
         $head .= \fread($conn, 1);
     }
     expect($head)->toStartWith('HTTP/1.1 101')
-        ->and($head)->toContain('Sec-WebSocket-Accept: ' . \base64_encode(\sha1($key . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11', true)));
+        ->and($head)->toMatch('/\r\nSec-WebSocket-Accept: ' . \preg_quote(\base64_encode(\sha1($key . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11', true)), '/') . '\r\n/i'); // header names are case-insensitive
 
     return $conn;
 }

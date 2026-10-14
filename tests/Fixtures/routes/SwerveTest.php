@@ -5,8 +5,9 @@ namespace App\Controllers;
 use phasync\Psr\Response;
 use phasync\Psr\UnbufferedStream;
 use Swerve\CodeIgniter\PsrResponse;
-use Swerve\Http\WebSocket;
+use Swerve\Psr15\WebSocketResponse;
 use Swerve\Swerve;
+use Swerve\WebSocket;
 
 /** swerve-codeigniter's test routes (tests/Fixtures/routes/SwerveTest.php) */
 class SwerveTest extends BaseController
@@ -186,7 +187,7 @@ class SwerveTest extends BaseController
 
     public function ws()
     {
-        return new PsrResponse(WebSocket::from(service('psrRequest'), function (WebSocket $ws) {
+        return new PsrResponse(WebSocketResponse::from(service('psrRequest'), function (WebSocket $ws) {
             foreach ($ws as $message) {
                 $ws->isBinary() ? $ws->sendBinary($message) : $ws->send("echo: $message");
             }
@@ -196,7 +197,7 @@ class SwerveTest extends BaseController
     /** Server push: forwards the topic news, after saying it has subscribed (and in which worker). */
     public function news()
     {
-        return new PsrResponse(WebSocket::from(service('psrRequest'), static function (WebSocket $ws) {
+        return new PsrResponse(WebSocketResponse::from(service('psrRequest'), static function (WebSocket $ws) {
             ++self::$open;
             try {
                 $subscription = Swerve::subscribe('news');
@@ -234,7 +235,7 @@ class SwerveTest extends BaseController
     {
         $user = session('user') ?? 'guest';
 
-        return new PsrResponse(WebSocket::from(service('psrRequest'), static function (WebSocket $ws) use ($user) {
+        return new PsrResponse(WebSocketResponse::from(service('psrRequest'), static function (WebSocket $ws) use ($user) {
             ++self::$open;
             try {
                 $subscription = Swerve::subscribe('news');
@@ -251,7 +252,7 @@ class SwerveTest extends BaseController
     /** Wrong: reads the session inside the callback, after the request has ended. */
     public function meLate()
     {
-        return new PsrResponse(WebSocket::from(service('psrRequest'), static function (WebSocket $ws) {
+        return new PsrResponse(WebSocketResponse::from(service('psrRequest'), static function (WebSocket $ws) {
             foreach ($ws as $message) {
                 $ws->send('user: ' . (session('user') ?? 'guest'));
             }

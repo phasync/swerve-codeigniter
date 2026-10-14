@@ -8,9 +8,9 @@ use Psr\Http\Message\ResponseInterface;
 
 /**
  * A PSR-7 response for a controller to return, sent as it is: a streamed body, Server-Sent
- * Events, a WebSocket.
+ * Events, a WebSocket (swerve-psr15's WebSocketResponse).
  *
- *     return new PsrResponse(WebSocket::from(service('psrRequest'), function (WebSocket $ws) {
+ *     return new PsrResponse(WebSocketResponse::from(service('psrRequest'), function (WebSocket $ws) {
  *         foreach ($ws as $message) {
  *             $ws->send("echo: $message");
  *         }

@@ -18,19 +18,22 @@ use Config\Exceptions as ExceptionsConfig;
 use Config\Paths;
 use Config\Session as SessionConfig;
 use Config\WorkerMode;
-use phasync\Psr\Response;
 use phasync\Psr\ResourceStream;
+use phasync\Psr\Response;
 use phasync\Psr\StringStream;
 use phasync\Util\Synchronized;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UploadedFileInterface;
 use Psr\Http\Server\RequestHandlerInterface;
+use Swerve\WorkerStoppingException;
 
 /**
- * A CodeIgniter 4 application as swerve's request handler, from the project's swerve.php:
+ * A CodeIgniter 4 application as a PSR-15 request handler, which the `codeigniter` adapter's entry
+ * ({@see entry()}) serves through swerve-psr15's Bridge; a swerve.php run with `--adapter=swerve`
+ * may do the same:
  *
- *     return new Swerve\CodeIgniter\Handler(__DIR__);
+ *     return Swerve\Psr15\Bridge::wrap(new Swerve\CodeIgniter\Handler(__DIR__));
  *
  * Once per worker: CodeIgniter's worker mode boot, Boot::bootWorker(), as its FrankenPHP worker
  * does. Per request: the PSR-7 request becomes the superglobals and CodeIgniter's
@@ -65,6 +68,8 @@ final class Handler implements RequestHandlerInterface
      */
     public function __construct(string $root)
     {
+        // The application's autoloader (the vendor directory swerve runs from): swerve's worker loads only its own dependencies
+        require_once $GLOBALS['_composer_autoload_path'] ?? $root . '/vendor/autoload.php';
         require_once __DIR__ . '/functions.php';
 
         // Output outside a request still goes to the terminal, but never through PHP's output:
@@ -120,6 +125,8 @@ final class Handler implements RequestHandlerInterface
 
             try {
                 $response = $this->app->run(null, true);
+            } catch (WorkerStoppingException $e) {
+                throw $e; // the worker stops: swerve answers the request (a 503 when nothing was sent yet)
             } catch (\Throwable $e) {
                 $response = $this->error($e);
             }

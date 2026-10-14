@@ -4,15 +4,13 @@
  * The worker's life: a drain on SIGTERM, and memory over many requests.
  */
 
-test('SIGTERM during a slow request: the request completes, the log has no errors', function () {
+test('SIGTERM during a slow request: the worker stops at once and swerve answers 503, the log has no errors', function () {
     [$proc, $addr, $log] = app_start(workers: 1);
     $conn                = raw_request($addr, "GET /slow HTTP/1.1\r\nHost: test\r\n\r\n");
     \usleep(200_000); // the request is waiting now
     \proc_terminate($proc, \SIGTERM);
-    $response = read_until($conn, 'slow done');
-    expect($response)->toStartWith('HTTP/1.1 200 OK')
-        ->and($response)->toContain("Connection: close\r\n")
-        ->and($response)->toEndWith('slow done');
+    $response = read_until($conn, "\r\n\r\n");
+    expect($response)->toStartWith('HTTP/1.1 503');
     expect(app_stop($proc))->toBe(0)
         ->and(log_errors($log))->toBe([]);
 });

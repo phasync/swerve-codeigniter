@@ -11,30 +11,28 @@ request and response bodies, and hold WebSockets and Server-Sent Events. This pa
 run a CodeIgniter 4 application unchanged, on CodeIgniter's own worker mode.
 
 ```bash
-composer config minimum-stability beta   # while swerve is in beta
-composer config prefer-stable true         # everything else stays stable
-composer require phasync/swerve-codeigniter
-```
-
-```php
-<?php // swerve.php, next to composer.json
-
-require __DIR__ . '/vendor/autoload.php';
-
-return new Swerve\CodeIgniter\Handler(__DIR__);
+composer config minimum-stability dev    # phasync and swerve are on their development versions
+composer config prefer-stable true        # everything else stays stable
+composer config repositories.swerve-psr15 vcs https://github.com/phasync/swerve-psr15
+composer require 'phasync/swerve:dev-main as 0.1.0-beta7' phasync/swerve-codeigniter
 ```
 
 ```bash
-vendor/bin/swerve --http=0.0.0.0:8080 --public=public swerve.php
+vendor/bin/swerve --adapter=codeigniter --http=0.0.0.0:8080 --public=public
 ```
 
-That's the whole setup. `public/index.php` stays as it is, so the same application still runs
-under PHP-FPM.
+That's the whole setup. `--adapter=codeigniter` picks this adapter over swerve-psr15's, which
+comes with it (or put `"extra": {"swerve": {"adapter": "codeigniter"}}` in your `composer.json`).
+`public/index.php` stays as it is, so the same application still runs under PHP-FPM. The handler
+is a PSR-15 request handler, served by [swerve-psr15](https://github.com/phasync/swerve-psr15)'s
+`Bridge`; a `swerve.php` run with `--adapter=swerve` may return
+`Swerve\Psr15\Bridge::wrap(new Swerve\CodeIgniter\Handler(__DIR__))`.
 
 ## WebSockets
 
-A WebSocket is a controller method on a GET route. It returns `Swerve\Http\WebSocket` in a
-`PsrResponse`; the callback runs on the connection after the handshake:
+A WebSocket is a controller method on a GET route. It returns swerve-psr15's `WebSocketResponse`
+in a `PsrResponse`; the callback gets swerve's `WebSocket` and runs on the connection after the
+handshake:
 
 ```php
 // app/Config/Routes.php
@@ -45,13 +43,14 @@ $routes->get('chat', 'Chat::socket');
 namespace App\Controllers;
 
 use Swerve\CodeIgniter\PsrResponse;
-use Swerve\Http\WebSocket;
+use Swerve\Psr15\WebSocketResponse;
+use Swerve\WebSocket;
 
 class Chat extends BaseController
 {
     public function socket()
     {
-        return new PsrResponse(WebSocket::from(service('psrRequest'), function (WebSocket $ws) {
+        return new PsrResponse(WebSocketResponse::from(service('psrRequest'), function (WebSocket $ws) {
             foreach ($ws as $message) {             // ends when the client leaves
                 $ws->send("echo: $message");        // sendBinary() for binary messages
             }
@@ -71,7 +70,7 @@ use Swerve\Swerve;
 
 public function news()                          // GET news, the WebSocket
 {
-    return new PsrResponse(WebSocket::from(service('psrRequest'), function (WebSocket $ws) {
+    return new PsrResponse(WebSocketResponse::from(service('psrRequest'), function (WebSocket $ws) {
         foreach (Swerve::subscribe('news') as $message) {
             $ws->send($message);
         }
@@ -90,7 +89,7 @@ A callback that only sends, like this one, ends when its client leaves: swerve r
 connection and cancels the callback. See swerve's [realtime](https://github.com/phasync/swerve/blob/main/docs/realtime.md)
 and [publish and subscribe](https://github.com/phasync/swerve/blob/main/docs/publish-subscribe.md) guides.
 
-**Take the user before `WebSocket::from()`.** The callback runs after the request has ended,
+**Take the user before `WebSocketResponse::from()`.** The callback runs after the request has ended,
 while the worker serves other requests; CodeIgniter's `session()`, `$this->request` and the
 other request services then belong to whichever request the worker ran last. Read what the
 callback needs in the controller and pass it in:
@@ -100,7 +99,7 @@ public function socket()
 {
     $userId = session('user_id');               // this request's session, now
 
-    return new PsrResponse(WebSocket::from(service('psrRequest'), function (WebSocket $ws) use ($userId) {
+    return new PsrResponse(WebSocketResponse::from(service('psrRequest'), function (WebSocket $ws) use ($userId) {
         foreach (Swerve::subscribe("user:$userId") as $message) {
             $ws->send($message);
         }
@@ -162,6 +161,9 @@ is produced: Server-Sent Events, a streamed download, a WebSocket.
 ## Before you deploy
 
 - `exit`, `die()` and `dd()` end the worker, and the requests it is serving with it.
+- **A stop ends the requests in flight.** On a shutdown or reload swerve stops a worker at once:
+  a request still waiting then ends, answered `503` by swerve when nothing was sent yet (no error
+  page, nothing logged); clients retry.
 - `app/Config/WorkerMode.php` must exist: the CodeIgniter 4.7 skeleton has it; an application
   upgraded from an older version copies it from the skeleton. Services listed in its
   `$persistentServices` live as long as the worker: don't add any that hold request data.
