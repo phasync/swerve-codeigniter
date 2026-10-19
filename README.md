@@ -10,11 +10,18 @@ is a PHP application server: long-running workers that serve HTTP/1.1 themselves
 request and response bodies, and hold WebSockets and Server-Sent Events. This package lets it
 run a CodeIgniter 4 application unchanged, on CodeIgniter's own worker mode.
 
+**One request at a time per worker.** CodeIgniter keeps a request's state in shared services,
+`config()`/`model()` instances, the default locale, `$_SESSION` and one database connection per
+worker, so the handler holds a lock for the whole request and the next request waits
+([why](docs/concurrency.md)). Capacity comes from running more workers, not from concurrency
+inside one: a request that waits (a slow query, an HTTP call) holds its worker until it
+finishes, so size `--workers` for the requests you expect waiting at once. A streamed response,
+Server-Sent Events or a WebSocket is sent after its request ends, so once under way it no
+longer holds the worker. `Scope` and `phasync::onScopeChange()` could take some of that shared
+state out of the lock without this adapter using either yet: [details](docs/concurrency.md).
+
 ```bash
-composer config minimum-stability dev    # phasync and swerve are on their development versions
-composer config prefer-stable true        # everything else stays stable
-composer config repositories.swerve-psr15 vcs https://github.com/phasync/swerve-psr15
-composer require 'phasync/swerve:dev-main as 0.1.0-beta7' phasync/swerve-codeigniter
+composer require phasync/swerve-codeigniter
 ```
 
 ```bash
@@ -110,7 +117,7 @@ public function socket()
 Calling `session('user_id')` inside the callback instead returns the user of another visitor's
 request (the tests show it).
 
-**What the tests show**, with and without phasync-ext: text and binary messages both ways;
+**What the tests show**, with and without ext-phasync: text and binary messages both ways;
 every published message reaching every client on every worker, in order; callbacks ending when
 clients leave, with a close frame or without a word; 500 sockets open on 2 workers while
 ordinary requests are still answered at once, since a worker runs one request at a time but an
@@ -119,16 +126,9 @@ exit cleanly.
 
 ## What changes
 
-| CodeIgniter 4.7 skeleton, 4 processes | PHP-FPM | swerve | |
-|---|---:|---:|---:|
-| JSON route | [1,547 req/s](benchmarks/results/fpm-4-json.txt) | [2,493 req/s](benchmarks/results/swerve-4-json.txt) | 1.6× |
-| Page with a session | [1,405 req/s](benchmarks/results/fpm-4-counter.txt) | [2,200 req/s](benchmarks/results/swerve-4-counter.txt) | 1.6× |
-
-PHP-FPM behind nginx, `wrk -t4 -c64 -d10s`, opcache on, production environment, on a 2-socket
-Xeon E5-2697 v3 shared with other work. With phasync-ext loaded: [2,149](benchmarks/results/swerve-4-ext-json.txt)
-and [1,822 req/s](benchmarks/results/swerve-4-ext-counter.txt). CodeIgniter's worker mode
-builds every config object and most services again for each request; that, not the server, is
-most of a request's time. [Method and raw results](benchmarks/).
+CodeIgniter's application is booted once per worker instead of once per request; worker mode
+still builds every config object and most services again for each request, as it does under
+PHP-FPM.
 
 A controller can also return a PSR-7 response in a `Swerve\CodeIgniter\PsrResponse`, sent as it
 is produced: Server-Sent Events, a streamed download, a WebSocket.
@@ -146,9 +146,8 @@ is produced: Server-Sent Events, a streamed download, a WebSocket.
 - **Concurrency:** a worker runs one request at a time (`phasync\Util\Synchronized`); the
   others wait their turn, so size the workers for the requests you serve at once. CodeIgniter
   shares its services, `config()` and `model()` instances, the default locale, `$_SESSION`
-  and the database connection among a worker's requests: [why, and what was
-  tried](docs/concurrency.md). Streamed responses and WebSockets are sent after their
-  request, so they don't hold the worker.
+  and the database connection among a worker's requests: [why](docs/concurrency.md). Streamed
+  responses and WebSockets are sent after their request, so they don't hold the worker.
 - **Sessions:** CodeIgniter's session library with any of its drivers. The session is written
   at the end of each request, PHP's session id is set from the request's cookie (PHP would
   otherwise keep the previous visitor's), and the session cookie PHP sends itself is added to
@@ -174,17 +173,15 @@ is produced: Server-Sent Events, a streamed download, a WebSocket.
 - A request that waits (a slow query, an API call) holds its worker: run enough workers for the
   requests that wait at the same time.
 - `is_cli()` is `false` in the workers, as under PHP-FPM; `spark` is unchanged.
-- phasync-ext needs 0.5.0-alpha10 or later: with 0.5.0-alpha8 every worker crashes on its
-  first request ([phasync/phasync-ext#9](https://github.com/phasync/phasync-ext/issues/9)).
-- Every open WebSocket is a connection of one worker; without phasync-ext a worker holds about
+- Every open WebSocket is a connection of one worker; without ext-phasync a worker holds about
   960. Code in a WebSocket callback uses what the controller passed in, not the request's
   services.
 
 ## Compatibility
 
-| CodeIgniter | PHP | phasync-ext |
+| CodeIgniter | PHP | ext-phasync |
 |---|---|---|
-| 4.7 | 8.2 – 8.5 | optional, 0.5.0-alpha10 or later; tested with and without |
+| 4.7 | 8.2 – 8.5 | optional; tested with and without |
 
 ## License
 

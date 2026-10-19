@@ -3,7 +3,7 @@
 /*
  * One worker, requests overlapping: each stores its own value in CodeIgniter's request-scoped
  * places (the request, the URI and route, the session, a shared service), waits (sleep() with
- * phasync-ext, which lets the worker run the others, phasync::sleep() without), and reads them
+ * ext-phasync, which lets the worker run the others, phasync::sleep() without), and reads them
  * back. Visitors without a session cookie arrive after ones with.
  */
 

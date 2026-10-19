@@ -9,7 +9,7 @@ if [ ! -f app/composer.json ]; then
     composer create-project "codeigniter4/appstarter:~$1.0" app --no-interaction --no-progress --no-install
 fi
 cd app
-composer config minimum-stability dev
+composer config minimum-stability stable
 composer config prefer-stable true
 # The adapter from the checkout, by its autoload rule: a path repository's symlink would make the
 # tests directory contain itself
@@ -17,9 +17,9 @@ php -r '$c = json_decode(file_get_contents("composer.json"), true); $c["autoload
 if [ -n "${SWERVE_PATH:-}" ]; then
     composer config repositories.swerve "{\"type\": \"path\", \"url\": \"$SWERVE_PATH\", \"options\": {\"symlink\": false, \"versions\": {\"phasync/swerve\": \"dev-main\"}}}"
 fi
-# The adapter's own requirements: swerve dev-main (aliased, for swerve-psr15's requirement of a release) and swerve-psr15
+# The adapter's own requirements: swerve and swerve-psr15
 composer config repositories.swerve-psr15 vcs https://github.com/phasync/swerve-psr15
-composer require --no-interaction --no-progress --with-all-dependencies 'phasync/swerve:dev-main as 0.1.0-beta7' 'phasync/swerve-psr15:dev-main'
+composer require --no-interaction --no-progress --with-all-dependencies 'phasync/swerve:^0.1' 'phasync/swerve-psr15:^0.1'
 
 cp ../routes/SwerveTest.php app/Controllers/SwerveTest.php
 sed -i '/^\/\/ swerve-codeigniter.s test routes/,$d' app/Config/Routes.php

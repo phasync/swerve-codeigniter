@@ -20,7 +20,7 @@ class SwerveTest extends BaseController
         return $this->response->setJSON(['framework' => 'CodeIgniter', 'version' => \CodeIgniter\CodeIgniter::CI_VERSION]);
     }
 
-    /** A wait of ?ms= (default 10) in usleep(), as a database query waits: it blocks the worker without phasync-ext. */
+    /** A wait of ?ms= (default 10) in usleep(), as a database query waits: it blocks the worker without ext-phasync. */
     public function usleep()
     {
         $ms = (int) ($this->request->getGet('ms') ?? 10);
@@ -278,7 +278,7 @@ class SwerveTest extends BaseController
         return $this->response->setJSON(['memory' => \memory_get_usage()]);
     }
 
-    /** A wait that lets the worker run other requests: sleep() with phasync-ext, phasync::sleep() without. */
+    /** A wait that lets the worker run other requests: sleep() with ext-phasync, phasync::sleep() without. */
     private function wait(float $seconds): void
     {
         \extension_loaded('phasync') ? \usleep((int) ($seconds * 1e6)) : \phasync::sleep($seconds);
