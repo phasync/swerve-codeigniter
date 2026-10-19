@@ -66,12 +66,25 @@ run unlocked: `WebSocketResponse` and a `PsrResponse`'s stream are sent after `h
 returns, while the worker takes its next request, so a long-lived connection should be opened
 there instead of held open inside a request.
 
-Two mechanisms could take process-wide state out of the lock, neither wired into this adapter.
-`Scope` (the [Scope RFC](https://wiki.php.net/rfc/scope), as fiber-interop/ext-scope, bundled in
-the phasync extension, or its userland polyfill) already makes `$_GET`, `$_POST`, `$_COOKIE`,
-`$_FILES`, `$_REQUEST` and the default locale and timezone per-scope: running each request in
-its own `Scope` would cover the superglobals and default-locale rows above (it leaves
-`$_SESSION` untouched). `phasync::onScopeChange(callable $fn)` runs `$fn(Scope $new, ?Scope
-$old)` on every scope switch, in the event loop; it is the general way to save and restore a
-process-wide static per scope (a `WeakMap<Scope, …>`), and could do the same for the shared
-services, `config()`/`model()` instances, `$_SESSION` and the database connection.
+Two fixes could take process-wide state out of the lock, neither wired into this adapter.
+
+The simple one is `phasync::onScopeChange(callable $fn)`: it runs `$fn(Scope $new, ?Scope $old)`
+on every scope switch, in the event loop, so it can swap a process-wide value out for the
+leaving request and in for the arriving one — the shared services, `config()`/`model()`
+instances, `$_SESSION` and the database connection could all be swapped this way. It is specific
+to phasync, not part of fiber-interop, `ext-scope` or the Scope RFC itself; it runs on every
+switch between requests on a worker, so only a few references should be swapped in it; it covers
+only state the application swaps itself, so a library's own statics still leak between requests;
+and an application that relies on it runs on phasync only.
+
+The proper fix is for state to be keyed on `\Scope::getCurrent()` directly (the [Scope
+RFC](https://wiki.php.net/rfc/scope)), rather than held in one static an application swaps by
+hand. Swerve already runs each request in a `\Scope` of its own. `$_GET`, `$_POST`, `$_COOKIE`,
+`$_FILES`, the default timezone and — with ext/intl loaded — the default locale already follow
+it this way, built into `Scope` itself: with the native extension (`fiber-interop/ext-scope`,
+bundled in the phasync extension) when it is loaded, and otherwise with its userland polyfill
+`fiber-interop/scope` 0.3.0, which phasync 2.0.2 requires — no extra step needed. Wiring this
+adapter to rely on it, instead of the lock, would cover the superglobal and default-locale rows
+above (it leaves `$_SESSION` untouched); the rest — the shared services, `config()`/`model()`
+instances and the database connection — would need to become state looked up by the current
+`Scope` instead of one instance per worker.
